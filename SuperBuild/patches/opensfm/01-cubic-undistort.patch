@@ -1,0 +1,11 @@
+--- a/opensfm/undistort.py	2026-11-06 13:50:53
++++ b/opensfm/undistort.py	2026-11-06 13:50:53
+@@ -223,7 +223,7 @@
+             remap = _compute_camera_remap(shot, undistorted_shots, height, width)
+ 
+         undistorted = undistort_image(
+-            shot, undistorted_shots, image, cv2.INTER_AREA, max_size,
++            shot, undistorted_shots, image, cv2.INTER_CUBIC, max_size,
+             remap=remap,
+         )
+         for k, v in undistorted.items():

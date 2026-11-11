@@ -1,0 +1,85 @@
+diff --git a/src/OdmOrthoPhoto.cpp b/src/OdmOrthoPhoto.cpp
+index 565d916..6cebf3e 100644
+--- a/src/OdmOrthoPhoto.cpp
++++ b/src/OdmOrthoPhoto.cpp
+@@ -941,45 +941,53 @@ void OdmOrthoPhoto::drawTexturedTriangle(const cv::Mat &texture, const TextureMe
+     }
+ }
+ 
++// Weights for 4 samples around a point x (0 to 1) past the second sample. Same kernel as
++// OpenCV's INTER_CUBIC (a = -0.75).
++static inline void cubicWeights(double x, double w[4])
++{
++    const double A = -0.75;
++    w[0] = ((A * (x + 1) - 5 * A) * (x + 1) + 8 * A) * (x + 1) - 4 * A;
++    w[1] = ((A + 2) * x - (A + 3)) * x * x + 1;
++    w[2] = ((A + 2) * (1 - x) - (A + 3)) * (1 - x) * (1 - x) + 1;
++    w[3] = 1.0 - w[0] - w[1] - w[2];
++}
++
+ template <typename T>
+ void OdmOrthoPhoto::renderPixel(int row, int col, double s, double t, const cv::Mat &texture)
+ {
+-    // The offset of the texture coordinate from its pixel positions.
++    // Cubic in place of bilinear, to keep fine detail. Texture coordinates keep the original
++    // convention, so nothing moves relative to the bilinear version.
+     double leftF, topF;
+-    // The position of the top left pixel.
+-    int left, top;
+-    // The distance to the left and right pixel from the texture coordinate.
+-    double dl, dt;
+-    // The distance to the top and bottom pixel from the texture coordinate.
+-    double dr, db;
+-
+-    dl = modf(s, &leftF);
+-    dr = 1.0 - dl;
+-    dt = modf(t, &topF);
+-    db = 1.0 - dt;
+-
+-    left = static_cast<int>(leftF);
+-    top = static_cast<int>(topF);
++    const double dl = modf(s, &leftF);
++    const double dt = modf(t, &topF);
++    const int left = static_cast<int>(leftF);
++    const int top = static_cast<int>(topF);
++
++    double wc[4], wr[4];
++    cubicWeights(dl, wc);
++    cubicWeights(dt, wr);
++
++    // Samples past the edge of the texture repeat the edge.
++    const int numChannels = texture.channels();
++    size_t xs[4], ys[4];
++    for (int k = 0; k < 4; k++){
++        xs[k] = static_cast<size_t>(std::max(0, std::min(left - 1 + k, texture.cols - 1))) * numChannels;
++        ys[k] = static_cast<size_t>(std::max(0, std::min(top - 1 + k, texture.rows - 1))) * texture.cols * numChannels;
++    }
+ 
+     // The interpolated color values.
+     size_t idx = static_cast<size_t>(row) * static_cast<size_t>(width) + static_cast<size_t>(col);
+-    T *data = reinterpret_cast<T *>(texture.data); // Faster access
+-    int numChannels = texture.channels();
++    const T *data = reinterpret_cast<const T *>(texture.data); // Faster access
+ 
+     for (int i = 0; i < numChannels; i++){
+         double value = 0.0;
+ 
+-        T tl = data[(top) * texture.cols * numChannels + (left) * numChannels + i];
+-        T tr = data[(top) * texture.cols * numChannels + (left + 1) * numChannels + i];
+-        T bl = data[(top + 1) * texture.cols * numChannels + (left) * numChannels + i];
+-        T br = data[(top + 1) * texture.cols * numChannels + (left + 1) * numChannels + i];
+-
+-        value += static_cast<double>(tl) * dr * db;
+-        value += static_cast<double>(tr) * dl * db;
+-        value += static_cast<double>(bl) * dr * dt;
+-        value += static_cast<double>(br) * dl * dt;
++        for (int r = 0; r < 4; r++){
++            const T *line = data + ys[r] + i;
++            value += wr[r] * (wc[0] * line[xs[0]] + wc[1] * line[xs[1]] + wc[2] * line[xs[2]] + wc[3] * line[xs[3]]);
++        }
+ 
+-        static_cast<T *>(bands[currentBandIndex + i])[idx] = static_cast<T>(value);
++        static_cast<T *>(bands[currentBandIndex + i])[idx] = cv::saturate_cast<T>(value);
+     }
+ 
+     // Increment the alpha band if the pixel was visible for this band
