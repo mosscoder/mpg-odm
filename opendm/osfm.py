@@ -284,7 +284,8 @@ class OSFMContext:
             osfm_matchers = {
                 "bow": "WORDS",
                 "flann": "FLANN",
-                "bruteforce": "BRUTEFORCE"
+                "bruteforce": "BRUTEFORCE",
+                "torch": "TORCH"
             }
 
             if not has_gps and not 'matcher_type_is_set' in args:

@@ -1,0 +1,91 @@
+diff --git a/opensfm/dataset.py b/opensfm/dataset.py
+index ae88572d..d34f8506 100644
+--- a/opensfm/dataset.py
++++ b/opensfm/dataset.py
+@@ -382,7 +382,9 @@ class DataSet(DataSetBase):
+         self.io_handler.mkdir_p(self._matches_path())
+ 
+         with BytesIO() as buffer:
+-            with gzip.GzipFile(fileobj=buffer, mode="w") as fzip:
++            # Level 1: on 1.87 million matches the default level 9 took 23.45 s, this takes 0.22 s, and
++            # the files grow 5%. Level 9 took over a fifth of the whole matching step.
++            with gzip.GzipFile(fileobj=buffer, mode="w", compresslevel=1) as fzip:
+                 pickle.dump(matches, fzip)
+             with self.io_handler.open_wb(self._matches_file(image)) as fw:
+                 fw.write(buffer.getvalue())
+diff --git a/opensfm/matching.py b/opensfm/matching.py
+index 7784574a..0d28aba4 100644
+--- a/opensfm/matching.py
++++ b/opensfm/matching.py
+@@ -22,6 +22,7 @@ from opensfm import (
+     pyfeatures,
+     pygeometry,
+ )
++from opensfm import torch_matcher
+ from opensfm.dataset_base import DataSetBase
+ 
+ 
+@@ -151,7 +152,12 @@ def match_images_with_pairs(
+         )
+         overriden_config["_opencl_device_idx"] = 0
+ 
+-    if use_gpu and required_opencl_hamming:
++    if overriden_config["matcher_type"].upper() == "TORCH":
++        # Descriptors are matched on the GPU in one go. Geometry checks stay on the CPU below.
++        batch_results = torch_matcher.match_pairs(data, pairs, overriden_config)
++        args = list(match_arguments(
++            pairs, data, overriden_config, cameras, exifs, poses, batch_results))
++    elif use_gpu and required_opencl_hamming:
+         batch_results = match_pairs_with_binary_projection_batched(
+             data, pairs, overriden_config, cameras, exifs
+         )
+diff --git a/opensfm/torch_matcher.py b/opensfm/torch_matcher.py
+new file mode 100644
+index 00000000..fba4454c
+--- /dev/null
++++ b/opensfm/torch_matcher.py
+@@ -0,0 +1,44 @@
++"""Run descriptor matching in a separate PyTorch environment, so it can use MPS or CUDA.
++
++ODM's environment has no PyTorch. This writes the pair list, runs ODM's contrib/torch_match/torch_match.py in an
++environment that has it, and reads the matches back. A failure stops the run rather than falling back
++to FLANN, so a benchmark can never quietly measure the wrong matcher.
++"""
++import json
++import logging
++import os
++import subprocess
++from typing import Any, Dict, List, Tuple
++
++import numpy as np
++
++from opensfm.dataset_base import DataSetBase
++
++logger = logging.getLogger(__name__)
++
++PYTHON = os.environ.get("MPG_TORCH_PYTHON", os.path.expanduser("~/miniforge3/envs/mpg-sfm-map/bin/python"))
++SCRIPT = os.environ.get("MPG_TORCH_MATCH_SCRIPT", os.path.abspath(os.path.join(os.path.dirname(__file__), *[".."] * 5, "contrib", "torch_match", "torch_match.py")))
++
++
++def match_pairs(data: DataSetBase, pairs: List[Tuple[str, str]], config: Dict[str, Any]) -> List[np.ndarray]:
++    """Returns one (n, 2) array of feature indexes per pair, in the order of pairs."""
++    work = os.path.join(data.data_path, "torch_match")
++    os.makedirs(work, exist_ok=True)
++    pairs_path = os.path.join(work, "pairs.json")
++    out_path = os.path.join(work, "matches.npz")
++    with open(pairs_path, "w") as f:
++        json.dump([list(p) for p in pairs], f)
++
++    # ODM's library paths would break the other environment.
++    env = {k: v for k, v in os.environ.items()
++           if not k.startswith(("DYLD_", "LD_", "CONDA_", "PYTHON", "PIXI_"))}
++    env["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
++    logger.info("Matching {} pairs with PyTorch".format(len(pairs)))
++    subprocess.run([PYTHON, "-I", SCRIPT, data.data_path, pairs_path, out_path, "--ratio", str(config["lowes_ratio"])],
++                   env=env, check=True)
++
++    with np.load(out_path) as z:
++        counts, matches = z["counts"], z["matches"]
++    if len(counts) != len(pairs):
++        raise RuntimeError("PyTorch matcher returned {} results for {} pairs".format(len(counts), len(pairs)))
++    return np.split(matches.astype(int), np.cumsum(counts)[:-1]) if len(counts) else []
