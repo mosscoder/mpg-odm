@@ -346,6 +346,15 @@ def config(argv=None, parser=None):
                 default=False,
                 help='Automatically compute image masks using AI to remove the sky. Experimental. Default: %(default)s')
 
+    parser.add_argument('--include-oblique',
+                action=StoreTrue,
+                nargs=0,
+                default=False,
+                help=('Use photos whose camera points more than 10 degrees off vertical, read from each photo\'s gimbal '
+                      'pitch. By default they are left out (listed in excluded_oblique.txt), because a few tilted '
+                      'photos in a mapping mission can bend the camera solve toward a GCP whose height disagrees. '
+                      'Photos without gimbal angles are always kept. Default: %(default)s'))
+
     parser.add_argument('--bg-removal',
                 action=StoreTrue,
                 nargs=0,

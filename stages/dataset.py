@@ -17,6 +17,10 @@ from opendm.bgfilter import BgFilter
 from opendm.concurrency import parallel_map
 from opendm.video.video2dataset import Parameters, Video2Dataset
 
+# Photos pointing more than this many degrees off vertical are left out unless --include-oblique is given.
+# Nadir M3M photos read 0 to 0.1; 2024 mission 7's tilted pass read 45.
+OBLIQUE_MAX_TILT = 10
+
 def save_images_database(photos, database_file):
     with open(database_file, 'w') as f:
         f.write(json.dumps([p.__dict__ for p in photos]))
@@ -162,16 +166,32 @@ class ODMLoadDatasetStage(types.ODM_Stage):
                         masks[p] = r
                     
                 photos = []
+                oblique = []
                 with open(tree.dataset_list, 'w') as dataset_list:
                     log.ODM_INFO("Loading %s images" % len(path_files))
                     for f in path_files:
                         try:
                             p = types.ODM_Photo(f)
+                            # Leave out tilted photos unless asked to keep them. ODM turns pitch into degrees off
+                            # vertical (0 looks straight down) only when yaw, pitch and roll are all present, so
+                            # photos without all three are kept.
+                            if not args.include_oblique and p.has_ypr() and abs(p.pitch) > OBLIQUE_MAX_TILT:
+                                oblique.append("%s %.1f" % (p.filename, p.pitch))
+                                continue
                             p.set_mask(find_mask(f, masks))
                             photos.append(p)
                             dataset_list.write(photos[-1].filename + '\n')
                         except PhotoCorruptedException:
                             log.ODM_WARNING("%s seems corrupted and will not be used" % os.path.basename(f))
+
+                oblique_file = os.path.join(tree.root_path, 'excluded_oblique.txt')
+                if oblique:
+                    with open(oblique_file, 'w') as fo:
+                        fo.write("# photo, degrees off vertical\n" + "\n".join(oblique) + "\n")
+                    log.ODM_WARNING("Left out %s photos tilted more than %s degrees off vertical (listed in %s). "
+                                    "Use --include-oblique to keep them." % (len(oblique), OBLIQUE_MAX_TILT, oblique_file))
+                elif os.path.exists(oblique_file):
+                    os.remove(oblique_file)
 
                 # Check if a geo file is available
                 if tree.odm_geo_file is not None and os.path.isfile(tree.odm_geo_file):
