@@ -239,6 +239,7 @@ externalproject_add(odm_orthophoto
     GIT_TAG           355
     PREFIX            ${SB_BINARY_DIR}/odm_orthophoto
     SOURCE_DIR        ${SB_SOURCE_DIR}/odm_orthophoto
+    PATCH_COMMAND     ${CMAKE_COMMAND} -P ${SB_ROOT_DIR}/cmake/apply-patch-series.cmake ${SB_ROOT_DIR}/patches/odm_orthophoto
     CMAKE_ARGS        -DCMAKE_INSTALL_PREFIX:PATH=${SB_INSTALL_DIR}
                       ${SB_EP_CMAKE_ARGS}
                       ${CONDA_CMAKE_ARGS}

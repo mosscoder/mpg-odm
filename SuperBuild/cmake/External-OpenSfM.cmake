@@ -46,6 +46,7 @@ ExternalProject_Add(${_proj_name}
   GIT_TAG           118771173cdf2ece8869f8b4e363d56a3d0b0c5c
   #--Update/Patch step----------
   UPDATE_COMMAND    git submodule update --init --recursive
+  PATCH_COMMAND     ${CMAKE_COMMAND} -P ${SB_ROOT_DIR}/cmake/apply-patch-series.cmake ${SB_ROOT_DIR}/patches/opensfm
   #--Configure step-------------
   SOURCE_DIR        ${SB_INSTALL_DIR}/bin/${_proj_name}
   CONFIGURE_COMMAND ${CMAKE_COMMAND} <SOURCE_DIR>/${_proj_name}/src

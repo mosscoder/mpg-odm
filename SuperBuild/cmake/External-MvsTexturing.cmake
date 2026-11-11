@@ -13,6 +13,7 @@ ExternalProject_Add(${_proj_name}
   #--Update/Patch step----------
   UPDATE_COMMAND    ""
   PATCH_COMMAND     ${CMAKE_COMMAND} -P ${SB_ROOT_DIR}/cmake/apply-patch.cmake ${SB_ROOT_DIR}/cmake/mvstexturing.patch
+    COMMAND         ${CMAKE_COMMAND} -P ${SB_ROOT_DIR}/cmake/apply-patch-series.cmake ${SB_ROOT_DIR}/patches/mvstexturing
   #--Configure step-------------
   SOURCE_DIR        ${SB_SOURCE_DIR}/${_proj_name}
   CMAKE_ARGS
