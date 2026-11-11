@@ -106,7 +106,8 @@ class ODMMvsTexStage(types.ODM_Stage):
                     'maxTextureSize': '--max_texture_size=%s' % max_texture_size,
                     'nvm_file': r['nvm_file'],
                     'intermediate': '--no_intermediate_results' if (r['labeling_file'] or not reconstruction.multi_camera) else '',
-                    'labelingFile': '-L "%s"' % r['labeling_file'] if r['labeling_file'] else ''
+                    'labelingFile': '-L "%s"' % r['labeling_file'] if r['labeling_file'] else '',
+                    'undistortMap': '--undistort_map="%s"' % os.path.join(tree.opensfm, "undistorted", "undistort_map.bin") if args.raw_texturing else ''
                 }
 
                 mvs_tmp_dir = os.path.join(r['out_dir'], 'tmp')
@@ -125,6 +126,7 @@ class ODMMvsTexStage(types.ODM_Stage):
                         '{keepUnseenFaces} '
                         '{nadirMode} '
                         '{labelingFile} '
+                        '{undistortMap} '
                         '{numThreads} '
                         '{maxTextureSize} '.format(**kwargs))
 

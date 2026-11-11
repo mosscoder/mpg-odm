@@ -1,0 +1,207 @@
+diff --git a/apps/texrecon/arguments.cpp b/apps/texrecon/arguments.cpp
+index 974c2f2c..2d0c2876 100644
+--- a/apps/texrecon/arguments.cpp
++++ b/apps/texrecon/arguments.cpp
+@@ -20,6 +20,7 @@
+ #define NADIR_MODE    "nadir_mode"
+ #define NUM_THREADS "num_threads"
+ #define MAX_TEXTURE_SIZE "max_texture_size"
++#define UNDISTORT_MAP "undistort_map"
+ 
+ Arguments parse_args(int argc, char **argv) {
+     util::Arguments args;
+@@ -95,6 +96,8 @@ Arguments parse_args(int argc, char **argv) {
+         "How many threads to use. Set 1 for determinism.");
+     args.add_option('\0', MAX_TEXTURE_SIZE, true,
+         "Maximum size of output textures.");
++    args.add_option('\0', UNDISTORT_MAP, true,
++        "Map file for reading the scene's images as raw photos, undistorted in memory on load.");
+     args.parse(argc, argv);
+ 
+     Arguments conf;
+@@ -158,6 +161,8 @@ Arguments parse_args(int argc, char **argv) {
+                 conf.num_threads = std::stoi(i->arg);
+             } else if (i->opt->lopt == MAX_TEXTURE_SIZE) {
+                 conf.settings.max_texture_size = std::stoi(i->arg);
++            } else if (i->opt->lopt == UNDISTORT_MAP) {
++                conf.undistort_map = i->arg;
+             } else {
+                 throw std::invalid_argument("Invalid long option");
+             }
+diff --git a/apps/texrecon/arguments.h b/apps/texrecon/arguments.h
+index 00e2f022..7b694283 100644
+--- a/apps/texrecon/arguments.h
++++ b/apps/texrecon/arguments.h
+@@ -21,6 +21,7 @@ struct Arguments {
+ 
+     std::string data_cost_file;
+     std::string labeling_file;
++    std::string undistort_map;
+ 
+     tex::Settings settings;
+ 
+diff --git a/apps/texrecon/texrecon.cpp b/apps/texrecon/texrecon.cpp
+index eb28c5ff..5c26e843 100644
+--- a/apps/texrecon/texrecon.cpp
++++ b/apps/texrecon/texrecon.cpp
+@@ -63,6 +63,10 @@ int main(int argc, char **argv) {
+         omp_set_num_threads(conf.num_threads);
+     }
+ 
++    if (!conf.undistort_map.empty()) {
++        tex::TextureView::set_undistort_map(conf.undistort_map);
++    }
++
+     std::cout << "Load and prepare mesh: " << std::endl;
+     mve::TriangleMesh::Ptr mesh;
+     try {
+diff --git a/libs/tex/generate_texture_views.cpp b/libs/tex/generate_texture_views.cpp
+index 98fb0cb7..76393b5e 100644
+--- a/libs/tex/generate_texture_views.cpp
++++ b/libs/tex/generate_texture_views.cpp
+@@ -198,6 +198,24 @@ from_nvm_scene(std::string const & nvm_file,
+         mve::CameraInfo& mve_cam = cameras[i];
+         mve::NVMCameraInfo const& nvm_cam = nvm_cams[i];
+ 
++        /* Raw photos are undistorted on load, so only their size is needed here, not their pixels. */
++        if (TextureView::uses_undistort_map()) {
++            mve::image::ImageHeaders header;
++            try {
++                header = mve::image::load_file_headers(nvm_cam.filename);
++            } catch (std::exception const & e) {
++                std::cerr << "Failed to load " << nvm_cam.filename << ": " << e.what() << std::endl;
++                std::exit(EXIT_FAILURE);
++            }
++            mve_cam.flen = mve_cam.flen / static_cast<float>(std::max(header.width, header.height));
++
++            #pragma omp critical
++            texture_views->push_back(TextureView(i, mve_cam, nvm_cam.filename));
++
++            view_counter.inc();
++            continue;
++        }
++
+         mve::ImageBase::Ptr image = nullptr;
+         try {
+             image = mve::image::load_file(nvm_cam.filename);
+diff --git a/libs/tex/texture_view.cpp b/libs/tex/texture_view.cpp
+index 5eca2826..2b8a5ef1 100644
+--- a/libs/tex/texture_view.cpp
++++ b/libs/tex/texture_view.cpp
+@@ -7,12 +7,66 @@
+  * of the BSD 3-Clause license. See the LICENSE.txt file for details.
+  */
+ 
++#include <cstdint>
++#include <fstream>
++
++#include <opencv2/core.hpp>
++#include <opencv2/imgcodecs.hpp>
++#include <opencv2/imgproc.hpp>
++
+ #include <math/matrix.h>
+ 
+ #include "texture_view.h"
+ 
+ TEX_NAMESPACE_BEGIN
+ 
++namespace {
++
++cv::Mat undistort_map_x;
++cv::Mat undistort_map_y;
++
++/* Same calls as OpenSfM's undistort, so the pixels match its undistorted image files. */
++mve::ByteImage::Ptr
++load_undistorted_photo(std::string const & file) {
++    cv::Mat const photo = cv::imread(file, cv::IMREAD_UNCHANGED);
++    if (photo.empty() || photo.type() != CV_8UC3 || photo.size() != undistort_map_x.size()) {
++        std::cerr << "Cannot undistort " << file << ": it needs to be an 8-bit color image the size of the map" << std::endl;
++        std::exit(EXIT_FAILURE);
++    }
++    cv::Mat undistorted;
++    cv::remap(photo, undistorted, undistort_map_x, undistort_map_y, cv::INTER_CUBIC);
++
++    mve::ByteImage::Ptr image = mve::ByteImage::create(undistorted.cols, undistorted.rows, 3);
++    cv::Mat rgb(undistorted.rows, undistorted.cols, CV_8UC3, image->get_data_pointer());
++    cv::cvtColor(undistorted, rgb, cv::COLOR_BGR2RGB);
++    return image;
++}
++
++} // namespace
++
++void
++TextureView::set_undistort_map(std::string const & map_file) {
++    std::ifstream in(map_file.c_str(), std::ios::binary);
++    std::int32_t size[2] = {0, 0};
++    in.read(reinterpret_cast<char *>(size), sizeof(size));
++    undistort_map_x.create(size[0], size[1], CV_32FC1);
++    undistort_map_y.create(size[0], size[1], CV_32FC1);
++    std::streamsize const bytes = static_cast<std::streamsize>(size[0]) * size[1] * sizeof(float);
++    in.read(reinterpret_cast<char *>(undistort_map_x.data), bytes);
++    in.read(reinterpret_cast<char *>(undistort_map_y.data), bytes);
++    if (!in.good() || size[0] <= 0 || size[1] <= 0) {
++        std::cerr << "Could not read undistort map " << map_file << std::endl;
++        std::exit(EXIT_FAILURE);
++    }
++    /* Photos already load in parallel, as in OpenSfM's undistort. */
++    cv::setNumThreads(0);
++}
++
++bool
++TextureView::uses_undistort_map(void) {
++    return !undistort_map_x.empty();
++}
++
+ TextureView::TextureView(std::size_t id, mve::CameraInfo const & camera,
+     std::string const & image_file)
+     : id(id), image_file(image_file) {
+@@ -40,9 +94,13 @@ TextureView::load_image(void) {
+     if(image != NULL) return;
+ 
+     grayscale = false;
+-    try {
+-        image = mve::image::load_file(image_file);
+-    } catch (...) {}
++    if (uses_undistort_map()) {
++        image = load_undistorted_photo(image_file);
++    } else {
++        try {
++            image = mve::image::load_file(image_file);
++        } catch (...) {}
++    }
+ 
+     if (image == NULL){
+         try{
+diff --git a/libs/tex/texture_view.h b/libs/tex/texture_view.h
+index 8be57cfc..c6194013 100644
+--- a/libs/tex/texture_view.h
++++ b/libs/tex/texture_view.h
+@@ -104,6 +104,14 @@ class TextureView {
+         /** Exchange encapsulated image. */
+         void bind_image(mve::ImageBase::Ptr new_image);
+ 
++        /**
++          * Treats every image file as a raw photo, undistorted in memory on load with this map,
++          * so that no undistorted copies are needed on disk. Call before loading any image.
++          */
++        static void set_undistort_map(std::string const & map_file);
++        /** Returns whether images are raw photos undistorted on load. */
++        static bool uses_undistort_map(void);
++
+         /** Loads the corresponding image. */
+         void load_image(void);
+         /** Generates the validity mask. */
+diff --git a/libs/tex/CMakeLists.txt b/libs/tex/CMakeLists.txt
+--- a/libs/tex/CMakeLists.txt
++++ b/libs/tex/CMakeLists.txt
+@@ -6,5 +6,9 @@
+ set_property(TARGET ${LIBRARY} PROPERTY INTERPROCEDURAL_OPTIMIZATION True)
+ add_dependencies(${LIBRARY} ext_rayint ext_eigen ext_mapmap)
+ include_directories(${TBB_INCLUDE_DIRS})
+-target_link_libraries(${LIBRARY} ${MVE_MVE_LIBRARY} ${MVE_UTIL_LIBRARY} ${JPEG_LIBRARIES} ${PNG_LIBRARIES} ${TIFF_LIBRARIES} TBB::tbb)
++# MPG: texture_view.cpp reads the raw photos with OpenCV (--undistort_map, texturing from the raw photos),
++# so the library is linked to it here, the same way on every system.
++find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs)
++include_directories(SYSTEM ${OpenCV_INCLUDE_DIRS})
++target_link_libraries(${LIBRARY} ${MVE_MVE_LIBRARY} ${MVE_UTIL_LIBRARY} ${JPEG_LIBRARIES} ${PNG_LIBRARIES} ${TIFF_LIBRARIES} TBB::tbb opencv_core opencv_imgproc opencv_imgcodecs)
+ install(TARGETS ${LIBRARY} ARCHIVE DESTINATION lib)

@@ -1,0 +1,108 @@
+diff --git a/opensfm/actions/export_visualsfm.py b/opensfm/actions/export_visualsfm.py
+index 11976711..9f7f8586 100644
+--- a/opensfm/actions/export_visualsfm.py
++++ b/opensfm/actions/export_visualsfm.py
+@@ -11,7 +11,7 @@ from opensfm.dataset import DataSet, UndistortedDataSet
+ logger: logging.Logger = logging.getLogger(__name__)
+ 
+ 
+-def run_dataset(data: DataSet, points: bool, image_list: str) -> None:
++def run_dataset(data: DataSet, points: bool, image_list: str, raw_images: bool = False) -> None:
+     udata = data.undistorted_dataset()
+ 
+     validate_image_names(data, udata)
+@@ -27,7 +27,7 @@ def run_dataset(data: DataSet, points: bool, image_list: str) -> None:
+                 export_only[image.strip()] = True
+ 
+     if reconstructions:
+-        export(reconstructions[0], tracks_manager, udata, points, export_only)
++        export(reconstructions[0], tracks_manager, udata, points, export_only, data if raw_images else None)
+ 
+ 
+ def export(
+@@ -36,8 +36,14 @@ def export(
+     udata: UndistortedDataSet,
+     with_points: bool,
+     export_only: Optional[Dict[str, bool]],
++    raw_data: Optional[DataSet] = None,
+ ) -> None:
++    """Write the NVM file. With raw_data, it names the raw photos and uses their full size,
++    which undistorted cameras keep whatever the size of the undistorted image files."""
+     lines = ["NVM_V3", "", str(len(reconstruction.shots))]
++    raw_names = {}
++    if raw_data is not None:
++        raw_names = {u: raw for raw, ushots in udata.load_undistorted_shot_ids().items() for u in ushots}
+     shot_size_cache = {}
+     shot_index = {}
+     i = 0
+@@ -51,13 +57,18 @@ def export(
+         q = tf.quaternion_from_matrix(shot.pose.get_rotation_matrix())
+         o = shot.pose.get_origin()
+ 
+-        shot_size_cache[shot.id] = udata.undistorted_image_size(shot.id)
++        if raw_data is not None:
++            shot_size_cache[shot.id] = (shot.camera.height, shot.camera.width)
++            path = os.path.relpath(raw_data._image_file(raw_names[shot.id]), udata.data_path)
++        else:
++            shot_size_cache[shot.id] = udata.undistorted_image_size(shot.id)
++            path = image_path(shot.id, udata)
+         shot_index[shot.id] = i
+         i += 1
+         focal_normalized = shot.camera.focal
+ 
+         words = [
+-            image_path(shot.id, udata),
++            path,
+             focal_normalized * max(shot_size_cache[shot.id]),
+             q[0],
+             q[1],
+diff --git a/opensfm/commands/export_visualsfm.py b/opensfm/commands/export_visualsfm.py
+index 1a6fbf9d..8ca58e60 100644
+--- a/opensfm/commands/export_visualsfm.py
++++ b/opensfm/commands/export_visualsfm.py
+@@ -12,10 +12,11 @@ class Command(command.CommandBase):
+     help = "Export reconstruction to NVM_V3 format from VisualSfM"
+ 
+     def run_impl(self, dataset: DataSet, args: argparse.Namespace) -> None:
+-        export_visualsfm.run_dataset(dataset, args.points, args.image_list)
++        export_visualsfm.run_dataset(dataset, args.points, args.image_list, args.raw_images)
+ 
+     def add_arguments_impl(self, parser: argparse.ArgumentParser) -> None:
+         parser.add_argument("--points", action="store_true", help="export points")
++        parser.add_argument("--raw-images", action="store_true", help="name the raw photos, at their full size")
+         parser.add_argument(
+             "--image_list",
+             type=str,
+diff --git a/opensfm/undistort.py b/opensfm/undistort.py
+index 58665b8c..3fec5fbd 100644
+--- a/opensfm/undistort.py
++++ b/opensfm/undistort.py
+@@ -291,7 +291,9 @@ def undistort_image(
+                 shot.camera, new_camera, width, height
+             )
+         undistorted = cv2.remap(original, map1, map2, interpolation)
+-        return {undistorted_shot.id: scale_image(undistorted, max_size)}
++        # Photos shrink by averaging, the same way OpenMVS shrinks them itself. Masks stay nearest.
++        shrink = cv2.INTER_AREA if interpolation == cv2.INTER_CUBIC else cv2.INTER_NEAREST
++        return {undistorted_shot.id: scale_image(undistorted, max_size, shrink)}
+     elif pygeometry.Camera.is_panorama(projection_type):
+         subshot_width = undistorted_shots[0].camera.width
+         width = 4 * subshot_width
+@@ -314,7 +316,7 @@ def undistort_image(
+         )
+ 
+ 
+-def scale_image(image: NDArray, max_size: int) -> NDArray:
++def scale_image(image: NDArray, max_size: int, interpolation: int = cv2.INTER_NEAREST) -> NDArray:
+     """Scale an image not to exceed max_size."""
+     height, width = image.shape[:2]
+     factor = max_size / float(max(height, width))
+@@ -322,7 +324,7 @@ def scale_image(image: NDArray, max_size: int) -> NDArray:
+         return image
+     width = int(round(width * factor))
+     height = int(round(height * factor))
+-    return cv2.resize(image, (width, height), interpolation=cv2.INTER_NEAREST)
++    return cv2.resize(image, (width, height), interpolation=interpolation)
+ _REMAP_CAMERA_TYPES = [
+     "perspective",
+     "brown",

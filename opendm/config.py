@@ -56,6 +56,7 @@ rerun_stages = {
     'name': None,
     'no_gpu': None,
     'optimize_disk_space': None,
+    'raw_texturing': 'opensfm',
     'orthophoto_compression': 'odm_orthophoto',
     'orthophoto_cutline': 'odm_orthophoto',
     'orthophoto_kmz': 'odm_orthophoto',
@@ -889,6 +890,14 @@ def config(argv=None, parser=None):
                       'affects the ability to restart the pipeline from an intermediate stage, '
                       'but allows datasets to be processed on machines that don\'t have sufficient '
                       'disk space available. Default: %(default)s'))
+
+    parser.add_argument('--raw-texturing',
+                action=StoreTrue,
+                nargs=0,
+                default=False,
+                help=('Do not store full size undistorted photos. Depth maps use small undistorted images, '
+                      'and texturing reads the raw photos and undistorts them in memory. RGB, one camera. '
+                      'Default: %(default)s'))
 
     parser.add_argument('--pc-rectify',
                     action=StoreTrue,

@@ -20,6 +20,7 @@ from opensfm.actions import undistort
 from opensfm.dataset import DataSet
 from opensfm.types import Reconstruction
 from opensfm import report
+from opensfm import pygeometry
 from opendm.multispectral import get_photos_by_band
 from opendm.gpu import has_popsift_and_can_handle_texsize, has_gpu
 from opensfm import multiview, exif
@@ -499,6 +500,20 @@ class OSFMContext:
             self.touch(done_flag_file)
         else:
             log.ODM_WARNING("Already undistorted (%s)" % runId)
+
+    def save_undistort_map(self):
+        """Write the map that undistorts raw photos, which texturing applies in memory. One camera only."""
+        ds = DataSet(self.opensfm_project_path)
+        reconstruction = ds.load_reconstruction("reconstruction.json")[0]
+        undistorted = ds.undistorted_dataset().load_undistorted_reconstruction()[0]
+        if len(reconstruction.cameras) != 1:
+            raise system.ExitException("--raw-texturing supports one camera, found %s" % len(reconstruction.cameras))
+        camera = next(iter(reconstruction.cameras.values()))
+        map_x, map_y = pygeometry.compute_camera_mapping(camera, undistorted.cameras[camera.id], camera.width, camera.height)
+        with open(self.path("undistorted", "undistort_map.bin"), "wb") as f:
+            np.array([camera.height, camera.width], dtype=np.int32).tofile(f)
+            map_x.astype(np.float32).tofile(f)
+            map_y.astype(np.float32).tofile(f)
 
     def restore_reconstruction_backup(self):
         if os.path.exists(self.recon_backup_file()):
