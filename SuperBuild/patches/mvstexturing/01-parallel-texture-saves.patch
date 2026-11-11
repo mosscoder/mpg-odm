@@ -1,0 +1,53 @@
+diff --git a/libs/tex/material_lib.cpp b/libs/tex/material_lib.cpp
+index 569369c1..dec82901 100644
+--- a/libs/tex/material_lib.cpp
++++ b/libs/tex/material_lib.cpp
+@@ -7,9 +7,13 @@
+  * of the BSD 3-Clause license. See the LICENSE.txt file for details.
+  */
+ 
++#include <cstddef>
++#include <exception>
+ #include <fstream>
+ #include <cstring>
+ #include <cerrno>
++#include <stdexcept>
++#include <string>
+ 
+ #include <util/exception.h>
+ #include <util/file_system.h>
+@@ -45,14 +49,27 @@ MaterialLib::save_to_files(std::string const & prefix) const {
+     }
+     out.close();
+ 
+-    for (Material const & material : *this) {
++    // Save atlases in parallel, at PNG level 1. PNG is lossless at any level. An exception cannot leave
++    // a parallel region, so the first failure is kept and rethrown afterwards.
++    std::string first_error;
++    std::ptrdiff_t const count = static_cast<std::ptrdiff_t>(this->size());
++    #pragma omp parallel for schedule(dynamic)
++    for (std::ptrdiff_t i = 0; i < count; ++i) {
++        Material const & material = (*this)[i];
+         std::string filename = prefix + "_" + material.name + "_map_Kd";
+-        if (material.diffuse_map->get_type() == mve::IMAGE_TYPE_FLOAT){
+-            mve::image::save_tiff_float_file(std::dynamic_pointer_cast<mve::FloatImage>(material.diffuse_map), filename + ".tif");
+-        }else if (material.diffuse_map->get_type() == mve::IMAGE_TYPE_UINT16){
+-            mve::image::save_tiff_16_file(std::dynamic_pointer_cast<mve::RawImage>(material.diffuse_map), filename + ".tif");
+-        }else{
+-            mve::image::save_png_file(std::dynamic_pointer_cast<mve::ByteImage>(material.diffuse_map), filename + ".png");
++        try {
++            if (material.diffuse_map->get_type() == mve::IMAGE_TYPE_FLOAT){
++                mve::image::save_tiff_float_file(std::dynamic_pointer_cast<mve::FloatImage>(material.diffuse_map), filename + ".tif");
++            }else if (material.diffuse_map->get_type() == mve::IMAGE_TYPE_UINT16){
++                mve::image::save_tiff_16_file(std::dynamic_pointer_cast<mve::RawImage>(material.diffuse_map), filename + ".tif");
++            }else{
++                mve::image::save_png_file(std::dynamic_pointer_cast<mve::ByteImage>(material.diffuse_map), filename + ".png", 1);
++            }
++        } catch (std::exception const & e) {
++            #pragma omp critical
++            if (first_error.empty()) first_error = filename + ": " + e.what();
+         }
+     }
++    if (!first_error.empty())
++        throw std::runtime_error(first_error);
+ }
