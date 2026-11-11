@@ -8,11 +8,14 @@ from opendm import mesh
 from opendm import gsd
 from opendm import types
 from opendm.dem import commands
+from opendm.utils import mesh_vertex_count
 
 class ODMeshingStage(types.ODM_Stage):
     def process(self, args, outputs):
         tree = outputs['tree']
         reconstruction = outputs['reconstruction']
+        max_vertex = mesh_vertex_count(args, reconstruction)
+        log.ODM_INFO('Mesh size: %s vertices' % max_vertex)
 
         # define paths and create working directories
         system.mkdir_p(tree.odm_meshing)
@@ -26,7 +29,7 @@ class ODMeshingStage(types.ODM_Stage):
                 tree.odm_mesh,
                 depth=self.params.get('oct_tree'),
                 samples=self.params.get('samples'),
-                maxVertexCount=self.params.get('max_vertex'),
+                maxVertexCount=max_vertex,
                 pointWeight=self.params.get('point_weight'),
                 threads=max(1, self.params.get('max_concurrency') - 1)), # poissonrecon can get stuck on some machines if --threads == all cores
           else:
@@ -55,7 +58,7 @@ class ODMeshingStage(types.ODM_Stage):
                     radius_steps,
                     dsm_resolution=dsm_resolution, 
                     depth=self.params.get('oct_tree'),
-                    maxVertexCount=self.params.get('max_vertex'),
+                    maxVertexCount=max_vertex,
                     samples=self.params.get('samples'),
                     available_cores=args.max_concurrency,
                     method='poisson' if args.fast_orthophoto else 'gridded',

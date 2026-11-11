@@ -10,7 +10,7 @@ from opendm import context
 from opendm import gsd
 from opendm import point_cloud
 from opendm import types
-from opendm.utils import get_depthmap_resolution
+from opendm.utils import get_depthmap_resolution, use_raw_texturing
 from opendm.osfm import OSFMContext
 from opendm import multispectral
 from opendm import thermal
@@ -88,9 +88,9 @@ class ODMOpenSfMStage(types.ODM_Stage):
             get_depthmap_resolution(args, photos)
         )
 
-        if args.raw_texturing:
-            if reconstruction.multi_camera or args.radiometric_calibration != "none":
-                raise system.ExitException("--raw-texturing supports plain RGB photos only")
+        raw_texturing = use_raw_texturing(args, reconstruction)
+        log.ODM_INFO("Texturing from %s" % ("raw photos (--raw-texturing)" if raw_texturing else "full size undistorted copies"))
+        if raw_texturing:
             # Only depth maps read the undistorted images now, so they only need depth map size.
             outputs['undist_image_max_size'] = get_depthmap_resolution(args, photos)
 
@@ -186,7 +186,7 @@ class ODMOpenSfMStage(types.ODM_Stage):
 
         octx.convert_and_undistort(self.rerun(), undistort_callback, image_list_override)
 
-        if args.raw_texturing and (not io.file_exists(octx.path("undistorted", "undistort_map.bin")) or self.rerun()):
+        if raw_texturing and (not io.file_exists(octx.path("undistorted", "undistort_map.bin")) or self.rerun()):
             octx.save_undistort_map()
 
         self.update_progress(95)
@@ -199,7 +199,7 @@ class ODMOpenSfMStage(types.ODM_Stage):
             octx.convert_and_undistort(self.rerun(), undistort_callback, runId='primary')
 
         if not io.file_exists(tree.opensfm_reconstruction_nvm) or self.rerun():
-            octx.run('export_visualsfm --points' + (' --raw-images' if args.raw_texturing else ''))
+            octx.run('export_visualsfm --points' + (' --raw-images' if raw_texturing else ''))
         else:
             log.ODM_WARNING('Found a valid OpenSfM NVM reconstruction file in: %s' %
                             tree.opensfm_reconstruction_nvm)

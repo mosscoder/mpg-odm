@@ -397,8 +397,9 @@ def config(argv=None, parser=None):
                         action=StoreValue,
                         default=200000,
                         type=int,
-                        help=('The maximum vertex count of the output mesh. '
-                              'Default: %(default)s'))
+                        help=('The maximum vertex count of the output mesh. If not set, 1,000 per photo '
+                              '(per capture for multispectral), and at least %(default)s, so detail holds as '
+                              'missions grow. Default: %(default)s'))
 
     parser.add_argument('--mesh-octree-depth',
                         metavar='<integer: 1 <= x <= 14>',
@@ -892,12 +893,17 @@ def config(argv=None, parser=None):
                       'disk space available. Default: %(default)s'))
 
     parser.add_argument('--raw-texturing',
-                action=StoreTrue,
-                nargs=0,
-                default=False,
+                metavar='<string>',
+                action=StoreValue,
+                nargs='?',
+                const='yes',
+                default='auto',
+                choices=['auto', 'yes', 'no'],
                 help=('Do not store full size undistorted photos. Depth maps use small undistorted images, '
                       'and texturing reads the raw photos and undistorts them in memory. RGB, one camera. '
-                      'Default: %(default)s'))
+                      'auto uses it for jobs without multiple bands or radiometric calibration, and full '
+                      'undistorted copies otherwise. Given without a value, means yes. '
+                      'Can be one of: %(choices)s. Default: %(default)s'))
 
     parser.add_argument('--pc-rectify',
                     action=StoreTrue,

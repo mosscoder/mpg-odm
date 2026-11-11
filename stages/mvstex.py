@@ -7,6 +7,7 @@ from opendm import context
 from opendm import types
 from opendm.multispectral import get_primary_band_name
 from opendm.photo import find_largest_photo_dim
+from opendm.utils import use_raw_texturing
 from opendm.objpacker import obj_pack
 from opendm.gltf import obj2glb
 
@@ -107,7 +108,7 @@ class ODMMvsTexStage(types.ODM_Stage):
                     'nvm_file': r['nvm_file'],
                     'intermediate': '--no_intermediate_results' if (r['labeling_file'] or not reconstruction.multi_camera) else '',
                     'labelingFile': '-L "%s"' % r['labeling_file'] if r['labeling_file'] else '',
-                    'undistortMap': '--undistort_map="%s"' % os.path.join(tree.opensfm, "undistorted", "undistort_map.bin") if args.raw_texturing else ''
+                    'undistortMap': '--undistort_map="%s"' % os.path.join(tree.opensfm, "undistorted", "undistort_map.bin") if use_raw_texturing(args, reconstruction) else ''
                 }
 
                 mvs_tmp_dir = os.path.join(r['out_dir'], 'tmp')

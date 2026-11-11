@@ -17,6 +17,23 @@ class NumpyEncoder(json.JSONEncoder):
         return json.JSONEncoder.default(self, obj)
 
 
+def use_raw_texturing(args, reconstruction):
+    """Whether texturing reads the raw photos instead of full size undistorted copies (--raw-texturing)."""
+    plain = not reconstruction.multi_camera and args.radiometric_calibration == "none"
+    if args.raw_texturing == "yes" and not plain:
+        from opendm import system
+        raise system.ExitException("--raw-texturing supports plain RGB photos only")
+    return args.raw_texturing == "yes" or (args.raw_texturing == "auto" and plain)
+
+
+def mesh_vertex_count(args, reconstruction):
+    """--mesh-size if given, else 1,000 vertices per photo (per capture for multispectral), at least the default."""
+    if getattr(args, "mesh_size_is_set", False):
+        return args.mesh_size
+    bands = len(reconstruction.multi_camera) if reconstruction.multi_camera else 1
+    return max(args.mesh_size, 1000 * (len(reconstruction.photos) // bands))
+
+
 def get_depthmap_resolution(args, photos):
     max_dims = find_largest_photo_dims(photos)
     min_dim = 320 # Never go lower than this
