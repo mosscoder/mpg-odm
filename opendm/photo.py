@@ -209,7 +209,14 @@ class ODM_Photo:
         xtags = {}
 
         with open(_path_file, 'rb') as f:
-            tags = exifread.process_file(f, details=True, extract_thumbnail=False)
+            # A malformed maker note, which the camera can write, crashes exifread. ODM reads only drone
+            # speed from it, so read the rest of the metadata without it rather than stop the whole job.
+            try:
+                tags = exifread.process_file(f, details=True, extract_thumbnail=False)
+            except Exception as e:
+                log.ODM_WARNING("Skipping the unreadable maker note of %s: %s" % (_path_file, str(e)))
+                f.seek(0)
+                tags = exifread.process_file(f, details=False, extract_thumbnail=False)
             try:
                 if 'Image Make' in tags:
                     try:
