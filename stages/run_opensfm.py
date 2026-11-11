@@ -70,8 +70,15 @@ class ODMOpenSfMStage(types.ODM_Stage):
 
         # We now switch to a geographic CRS
         if reconstruction.is_georeferenced() and (not io.file_exists(tree.opensfm_topocentric_reconstruction) or self.rerun()):
-            octx.run('export_geocoords --reconstruction --proj "%s" --offset-x %s --offset-y %s' % 
-                (reconstruction.georef.proj4(), reconstruction.georef.utm_east_offset, reconstruction.georef.utm_north_offset))
+            # Exact unless --stock-georef asks for ODM's linear step (--exact-georef, the old opt-in, changes nothing).
+            exact_georef = not args.stock_georef
+            if exact_georef:
+                log.ODM_INFO("Converting the solve to map coordinates exactly")
+            else:
+                log.ODM_WARNING("Converting the solve to map coordinates with stock ODM's linear step (--stock-georef)")
+            octx.run('export_geocoords --reconstruction --proj "%s" --offset-x %s --offset-y %s%s' %
+                (reconstruction.georef.proj4(), reconstruction.georef.utm_east_offset, reconstruction.georef.utm_north_offset,
+                 ' --mode exact' if exact_georef else ''))
             shutil.move(tree.opensfm_reconstruction, tree.opensfm_topocentric_reconstruction)
             shutil.move(tree.opensfm_geocoords_reconstruction, tree.opensfm_reconstruction)
         else:

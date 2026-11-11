@@ -1,0 +1,90 @@
+diff --git a/opensfm/actions/export_geocoords.py b/opensfm/actions/export_geocoords.py
+index 9be4a313..89062df1 100644
+--- a/opensfm/actions/export_geocoords.py
++++ b/opensfm/actions/export_geocoords.py
+@@ -35,7 +35,7 @@ def run_dataset(
+         dense : export dense point cloud (depthmaps/merged.ply)
+         output : path of the output file relative to the dataset
+         offset : offset to substract from the translation (optional)
+-        mode : Method of georeferencing (optional) [affine|projected]
++        mode : Method of georeferencing (optional) [affine|projected|exact]
+ 
+     """
+ 
+@@ -82,6 +82,9 @@ def run_dataset(
+                 
+                 logger.info("Bundle shot poses")
+                 bundle_shot_poses(r, set(r.shots.keys()), camera_priors, rig_camera_priors, data.config)
++        elif mode == "exact":
++            for r in reconstructions:
++                geo.transform_reconstruction_exact(r, projection, offset)
+         else:
+             raise Exception(f"Invalid mode: {mode}")
+         
+diff --git a/opensfm/commands/export_geocoords.py b/opensfm/commands/export_geocoords.py
+index c4f9acc5..57eee107 100644
+--- a/opensfm/commands/export_geocoords.py
++++ b/opensfm/commands/export_geocoords.py
+@@ -61,8 +61,8 @@ class Command(command.CommandBase):
+         )        
+         parser.add_argument(
+             "--mode",
+-            help="Georeferencing method",
++            help="Georeferencing method. exact: every point and camera converted exactly, cameras turned by the map grid (MPG fork)",
+             type=str,
+-            choices=["affine", "projected"],
++            choices=["affine", "projected", "exact"],
+             default="affine",
+         )
+diff --git a/opensfm/geo.py b/opensfm/geo.py
+index 764c2292..d7d1b0d3 100644
+--- a/opensfm/geo.py
++++ b/opensfm/geo.py
+@@ -578,6 +578,47 @@ def transform_reconstruction_with_proj(
+         )
+ 
+ 
++def transform_reconstruction_exact(
++    reconstruction: "types.Reconstruction",
++    projection: pyproj.Transformer,
++    offset: Tuple[float, float] = (0.0, 0.0),
++) -> None:
++    """Exactly convert a reconstruction from its topocentric frame to a projection, in place (MPG fork).
++
++    Every point and camera centre goes through latitude, longitude and ellipsoidal height to the projection, minus
++    the offset. Each rig instance is turned by the pure-rotation part (polar decomposition) of the projection's
++    Jacobian at its centre, so its pose stays a true rotation. No re-fit. The linear 'affine' mode drops heights by
++    the Earth's curvature away from the reference and hands the pose a scaled matrix, which shrinks camera centres
++    by the map scale factor around the offset when saved; 'projected' re-fits cameras to GPS priors left in the
++    topocentric frame. The projection takes (lat, lon), as from construct_proj_transformer(..., inverse=True).
++    """
++    ref = reconstruction.reference
++    off = np.array([offset[0], offset[1], 0.0])
++
++    def convert(p: NDArray) -> NDArray:
++        lat, lon, alt = lla_from_topocentric(p[:, 0], p[:, 1], p[:, 2], ref.lat, ref.lon, ref.alt)
++        x, y = projection.transform(lat, lon)
++        return np.column_stack((x, y, alt)) - off
++
++    instances = list(reconstruction.rig_instances.values())
++    if instances:
++        c = np.array([ri.pose.get_origin() for ri in instances])
++        c1 = convert(c)
++        # 1 m steps along each local axis; columns are the map's change per local axis at each centre.
++        jac = np.stack([convert(c + e) - c1 for e in np.eye(3)], axis=2)
++        u, _, vt = np.linalg.svd(jac)
++        turn = u @ vt
++        for ri, centre, rot in zip(instances, c1, turn):
++            ri.pose.set_rotation_matrix(ri.pose.get_rotation_matrix() @ rot.T)
++            ri.pose.set_origin(centre)
++
++    points = list(reconstruction.points.values())
++    if points:
++        p1 = convert(np.array([pt.coordinates for pt in points]))
++        for pt, xyz in zip(points, p1):
++            pt.coordinates = xyz.tolist()
++
++
+ def gps_distance(
+     latlon_1: Union[Sequence[Scalars], NDArray],
+     latlon_2: Union[Sequence[Scalars], NDArray],

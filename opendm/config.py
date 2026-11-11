@@ -880,6 +880,23 @@ def config(argv=None, parser=None):
                           'offset can tilt or stretch the block; on 2024 mission 7 held-out GCP heights were 24.8 cm RMS '
                           'with 7 numbers and 12.0 cm with a shift. Default: %(default)s'))
 
+    parser.add_argument('--stock-georef',
+                    action=StoreTrue,
+                    nargs=0,
+                    default=False,
+                    help=('Convert the camera solve to map coordinates with stock ODM\'s linear step instead of the exact '
+                          'conversion. The linear step drops heights by the Earth\'s curvature away from the middle of the '
+                          'area (12 cm at 1.4 km) and pulls cameras toward the map offset point; on 2024 mission 7 it moved '
+                          'map targets 23 cm RMS against 2.7 cm exact. Default: %(default)s'))
+
+    parser.add_argument('--exact-georef',
+                    action=StoreTrue,
+                    nargs=0,
+                    default=False,
+                    help=('Convert the camera solve to map coordinates exactly (every point and camera through latitude, '
+                          'longitude and height, each camera turned by the local map grid). This is now the default; the '
+                          'flag is kept so older commands still run. See --stock-georef. Default: %(default)s'))
+
     parser.add_argument('--gps-accuracy',
                         type=float,
                         action=StoreValue,
