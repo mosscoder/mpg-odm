@@ -1,3 +1,6 @@
+> **This is MPG Ranch's fork of ODM** for surveys flown with the DJI Mavic 3 Multispectral. What it changes and why:
+> [MPG_CHANGES.md](MPG_CHANGES.md). Everything below is upstream ODM's own README.
+
 ![ODM Logo](https://github.com/OpenDroneMap/ODM/blob/master/odm.png?raw=true)
 
 An open source command line toolkit for processing aerial drone imagery. ODM turns simple 2D images into:
