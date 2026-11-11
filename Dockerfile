@@ -1,6 +1,7 @@
 # Pixi container layout: https://pixi.prefix.dev/latest/deployment/container/
 
-FROM ghcr.io/prefix-dev/pixi:latest AS dev
+# MPG: pixi pinned to the version this fork is built and tested with (pixi.lock is written by it).
+FROM ghcr.io/prefix-dev/pixi:0.84.1 AS dev
 
 # devcontainer common-utils creates user `odm`; drop default `ubuntu` (uid 1000) if present.
 RUN if id "ubuntu" >/dev/null 2>&1; then \
