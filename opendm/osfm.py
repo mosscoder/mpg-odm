@@ -346,7 +346,10 @@ class OSFMContext:
                     config.append("bundle_use_gps: no")
                 else:
                     config.append("bundle_compensate_gps_bias: yes")
-                    
+                    if args.gps_bias_shift_only:
+                        log.ODM_INFO("GPS offset to the GCPs: shift only")
+                        config.append("bundle_gps_bias_parameters: translation")
+
                 io.copy(gcp_path, self.path("gcp_list.txt"))
             
             config = config + append_config

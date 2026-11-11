@@ -871,6 +871,15 @@ def config(argv=None, parser=None):
                           'This flag is useful if you have high precision GPS measurements. '
                           'If there are no GCPs, this flag does nothing. Default: %(default)s'))
 
+    parser.add_argument('--gps-bias-shift-only',
+                    action=StoreTrue,
+                    nargs=0,
+                    default=False,
+                    help=('With --force-gps and GCPs, let the estimated offset between the GPS positions and the GCPs '
+                          'be a shift only (3 numbers) instead of shift, rotation and scale (7). With few GCPs the 7-number '
+                          'offset can tilt or stretch the block; on 2024 mission 7 held-out GCP heights were 24.8 cm RMS '
+                          'with 7 numbers and 12.0 cm with a shift. Default: %(default)s'))
+
     parser.add_argument('--gps-accuracy',
                         type=float,
                         action=StoreValue,

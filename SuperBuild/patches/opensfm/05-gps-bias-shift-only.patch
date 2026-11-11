@@ -1,0 +1,64 @@
+diff --git a/opensfm/align.py b/opensfm/align.py
+index 43cd3550..116ab8e5 100644
+--- a/opensfm/align.py
++++ b/opensfm/align.py
+@@ -346,6 +346,28 @@ def set_gps_bias(
+     for s in reconstruction.shots.values():
+         per_camera_shots[s.camera.id].append(s.id)
+ 
++    if config.get("bundle_gps_bias_parameters", "auto") == "translation":
++        # Shift only: start each camera's bias at the mean offset from GPS to the shots,
++        # with no rotation or scale. Bundle adjustment then frees only the shift.
++        offsets = {}
++        for camera_id, shots_id in per_camera_shots.items():
++            shots = [reconstruction.shots[i] for i in shots_id]
++            offsets[camera_id] = [
++                s.pose.get_origin() - s.metadata.gps_position.value
++                for s in shots
++                if s.metadata.gps_position.has_value
++            ]
++        if not all(offsets.values()):
++            logger.warning(
++                "Cannot compensate some shots, GPS bias won't be compensated.")
++            return gps_bias
++        for camera_id, camera_offsets in offsets.items():
++            b = np.mean(camera_offsets, axis=0)
++            logger.info(f"Camera {camera_id} bias : translation only {b}")
++            reconstruction.set_bias(
++                camera_id, pygeometry.Similarity(np.zeros(3), b, 1.0))
++        return gps_bias
++
+     per_camera_transform = {}
+     for camera_id, shots_id in per_camera_shots.items():
+         # As we re-use 'compute_reconstruction_similarity', we need to construct a 'Reconstruction'
+diff --git a/opensfm/config.py b/opensfm/config.py
+index d7a984cc..0b8dd6e1 100644
+--- a/opensfm/config.py
++++ b/opensfm/config.py
+@@ -375,6 +375,8 @@ class OpenSfMConfig:
+     bundle_use_gcp: bool = True
+     # Compensate GPS with a per-camera similarity transform
+     bundle_compensate_gps_bias: bool = False
++    # Which parts of that bias may change: auto (all seven when 3+ GCPs are spread out) or translation (shift only)
++    bundle_gps_bias_parameters: str = "auto"
+     # Thrershold for the reprojection error of GCPs to be considered outliers
+     gcp_reprojection_error_threshold: float = 0.05
+ 
+diff --git a/opensfm/src/lib/sfm/src/ba_helpers.cc b/opensfm/src/lib/sfm/src/ba_helpers.cc
+index 07fd4bff..1bbfda34 100644
+--- a/opensfm/src/lib/sfm/src/ba_helpers.cc
++++ b/opensfm/src/lib/sfm/src/ba_helpers.cc
+@@ -1806,6 +1806,13 @@ bundle::SimilarityParameterMask BAHelpers::DetermineGCPBiasParameters(
+     const py::dict& config) {
+   using Mask = bundle::SimilarityParameterMask;
+ 
++  // "translation" frees only the shift, however many GCPs there are.
++  if (config.contains("bundle_gps_bias_parameters") &&
++      config["bundle_gps_bias_parameters"].cast<std::string>() ==
++          "translation") {
++    return Mask::Translation;
++  }
++
+   const auto& shots = map.GetShots();
+   const float reproj_threshold =
+       config["gcp_reprojection_error_threshold"].cast<float>();
