@@ -1,0 +1,236 @@
+diff --git a/libs/tex/generate_texture_patches.cpp b/libs/tex/generate_texture_patches.cpp
+index f2669bf..880d069 100644
+--- a/libs/tex/generate_texture_patches.cpp
++++ b/libs/tex/generate_texture_patches.cpp
+@@ -134,6 +134,19 @@ generate_candidate(int label, TextureView const & texture_view,
+     }else if (view_image->get_type() == mve::IMAGE_TYPE_UINT16){
+         mve::RawImage::Ptr raw_image = texture_view.get_image<uint16_t>();
+         raw_image = mve::image::crop<uint16_t>(raw_image, width, height, min_x, min_y, *math::Vec3us(65535, 0, 65535));
++        /* A one-band image was loaded as three equal channels: keep the first alone, with the values
++         * raw_to_float_image gives, unless gamma correction below needs a float image of three. */
++        if (texture_view.is_grayscale() && settings.tone_mapping != TONE_MAPPING_GAMMA) {
++            mve::FloatImage::Ptr gray_image = mve::FloatImage::create(width, height, 1);
++            for (int i = 0; i < raw_image->get_pixel_amount(); ++i) {
++                float const value = static_cast<float>(raw_image->at(i, 0)) / 65535.0f;
++                gray_image->at(i, 0) = std::min(1.0f, std::max(0.0f, value));
++            }
++            TexturePatchCandidate gray_candidate =
++                {Rect<int>(min_x, min_y, max_x, max_y),
++                    TexturePatch::create_gray(label, faces, texcoords, gray_image)};
++            return gray_candidate;
++        }
+         image = mve::image::raw_to_float_image(raw_image);
+     }else{
+         mve::ByteImage::Ptr byte_image;
+diff --git a/libs/tex/local_seam_leveling.cpp b/libs/tex/local_seam_leveling.cpp
+index 1d3bdb9..e1c3419 100644
+--- a/libs/tex/local_seam_leveling.cpp
++++ b/libs/tex/local_seam_leveling.cpp
+@@ -189,8 +189,8 @@ local_seam_leveling(UniGraph const & graph, mve::TriangleMesh::ConstPtr mesh,
+     for (std::int64_t i = 0; i < texture_patches->size(); ++i) {
+ #endif
+         TexturePatch::Ptr texture_patch = texture_patches->at(i);
+-        /* A patch held in bytes already hands out a copy. */
+-        mve::FloatImage::Ptr image = texture_patch->get_byte_image() != NULL
++        /* A patch held in bytes or in one channel already hands out a copy. */
++        mve::FloatImage::Ptr image = texture_patch->hands_out_copy()
+             ? texture_patch->get_image() : texture_patch->get_image()->duplicate();
+ 
+         /* Apply colors. */
+diff --git a/libs/tex/texture_patch.cpp b/libs/tex/texture_patch.cpp
+index 27da269..a487770 100644
+--- a/libs/tex/texture_patch.cpp
++++ b/libs/tex/texture_patch.cpp
+@@ -34,12 +34,23 @@ TexturePatch::TexturePatch(int label, std::vector<std::size_t> const & faces,
+     blending_mask = mve::ByteImage::create(byte_image->width(), byte_image->height(), 1);
+ }
+ 
++TexturePatch::TexturePatch(int label, std::vector<std::size_t> const & faces,
++    std::vector<math::Vec2f>  const & texcoords, mve::FloatImage::Ptr gray_image, OneChannel)
++    : label(label), faces(faces), texcoords(texcoords), gray_image(gray_image) {
++
++    assert(gray_image->channels() == 1);
++    validity_mask = mve::ByteImage::create(gray_image->width(), gray_image->height(), 1);
++    validity_mask->fill(255);
++    blending_mask = mve::ByteImage::create(gray_image->width(), gray_image->height(), 1);
++}
++
+ TexturePatch::TexturePatch(TexturePatch const & texture_patch) {
+     label = texture_patch.label;
+     faces = std::vector<std::size_t>(texture_patch.faces);
+     texcoords = std::vector<math::Vec2f>(texture_patch.texcoords);
+     if (texture_patch.image != NULL) image = texture_patch.image->duplicate();
+     if (texture_patch.byte_image != NULL) byte_image = texture_patch.byte_image->duplicate();
++    if (texture_patch.gray_image != NULL) gray_image = texture_patch.gray_image->duplicate();
+     validity_mask = texture_patch.validity_mask->duplicate();
+     if (texture_patch.blending_mask != NULL) {
+         blending_mask = texture_patch.blending_mask->duplicate();
+@@ -128,6 +139,18 @@ TexturePatch::adjust_colors(std::vector<math::Vec3f> const & adjust_values) {
+         return;
+     }
+ 
++    if (gray_image != NULL) {
++        /* What the loop below does to the first of three channels. */
++        for (int i = 0; i < gray_image->get_pixel_amount(); ++i) {
++            if (validity_mask->at(i, 0) != 0){
++                gray_image->at(i, 0) += iadjust_values->at(i, 0);
++            } else {
++                gray_image->at(i, 0) = 0.0f;
++            }
++        }
++        return;
++    }
++
+     for (int i = 0; i < image->get_pixel_amount(); ++i) {
+         if (validity_mask->at(i, 0) != 0){
+             for (int c = 0; c < 3; ++c) {
+@@ -194,6 +217,11 @@ TexturePatch::get_pixel_value(math::Vec2f pixel) const {
+         image->linear_at(pixel[0], pixel[1], *color);
+         return color;
+     }
++    if (gray_image != NULL) {
++        float value;
++        gray_image->linear_at(pixel[0], pixel[1], &value);
++        return math::Vec3f(value, value, value);
++    }
+ 
+     /* Same steps as linear_at on a float image holding these bytes. linear_at on bytes would round. */
+     float const x = std::max(0.0f, std::min(static_cast<float>(get_width() - 1), pixel[0]));
+@@ -224,6 +252,8 @@ TexturePatch::set_pixel_value(math::Vec2i pixel, math::Vec3f color) {
+         for (int c = 0; c < 3; ++c) {
+             byte_image->at(pixel[0], pixel[1], c) = to_byte(color[c]);
+         }
++    } else if (gray_image != NULL) {
++        gray_image->at(pixel[0], pixel[1], 0) = color[0];
+     } else {
+         std::copy(color.begin(), color.end(), &image->at(pixel[0], pixel[1], 0));
+     }
+@@ -238,6 +268,13 @@ TexturePatch::blend(mve::FloatImage::ConstPtr orig) {
+         for (int i = 0; i < dest->get_value_amount(); ++i) {
+             byte_image->at(i) = to_byte(dest->at(i));
+         }
++    } else if (gray_image != NULL) {
++        /* The same solve as on three channels (each is solved on its own); the first is kept. */
++        mve::FloatImage::Ptr dest = mve::image::expand_grayscale<float>(gray_image);
++        poisson_blend(orig, blending_mask, dest, 1.0f);
++        for (int i = 0; i < gray_image->get_pixel_amount(); ++i) {
++            gray_image->at(i, 0) = dest->at(i, 0);
++        }
+     } else {
+         poisson_blend(orig, blending_mask, image, 1.0f);
+     }
+diff --git a/libs/tex/texture_patch.h b/libs/tex/texture_patch.h
+index aa67425..678095f 100644
+--- a/libs/tex/texture_patch.h
++++ b/libs/tex/texture_patch.h
+@@ -37,9 +37,14 @@ class TexturePatch {
+         Faces faces;
+         Texcoords texcoords;
+         /* Exactly one of these holds the colors. Patches from 8-bit photos stay in bytes, which take
+-         * 3 bytes per pixel against 12, and convert to float only while one patch is being worked on. */
++         * 3 bytes per pixel against 12, and convert to float only while one patch is being worked on.
++         * Patches from one-band 16-bit images, which are loaded as three equal channels, keep the first
++         * channel alone as float, 4 bytes per pixel against 12, and are widened to three channels only
++         * while one patch is being worked on. The channels are worked independently everywhere, so the
++         * first channel of every result is the one three channels would have given. */
+         mve::FloatImage::Ptr image;
+         mve::ByteImage::Ptr byte_image;
++        mve::FloatImage::Ptr gray_image;
+         mve::ByteImage::Ptr validity_mask;
+         mve::ByteImage::Ptr blending_mask;
+ 
+@@ -49,6 +54,10 @@ class TexturePatch {
+             std::vector<math::Vec2f>  const & _texcoords, mve::FloatImage::Ptr _image);
+         TexturePatch(int _label, std::vector<std::size_t> const & _faces,
+             std::vector<math::Vec2f>  const & _texcoords, mve::ByteImage::Ptr _byte_image);
++        /** A patch held in one float channel (create_gray). */
++        struct OneChannel {};
++        TexturePatch(int _label, std::vector<std::size_t> const & _faces,
++            std::vector<math::Vec2f>  const & _texcoords, mve::FloatImage::Ptr _gray_image, OneChannel);
+ 
+         TexturePatch(TexturePatch const & texture_patch);
+ 
+@@ -57,6 +66,9 @@ class TexturePatch {
+             std::vector<math::Vec2f> const & texcoords, mve::FloatImage::Ptr image);
+         static TexturePatch::Ptr create(int label, std::vector<std::size_t> const & faces,
+             std::vector<math::Vec2f> const & texcoords, mve::ByteImage::Ptr byte_image);
++        /** gray_image: one float channel, the first of a one-band image's three equal channels. */
++        static TexturePatch::Ptr create_gray(int label, std::vector<std::size_t> const & faces,
++            std::vector<math::Vec2f> const & texcoords, mve::FloatImage::Ptr gray_image);
+ 
+         TexturePatch::Ptr duplicate(void);
+ 
+@@ -74,9 +86,12 @@ class TexturePatch {
+         std::vector<math::Vec2f> & get_texcoords(void);
+         std::vector<math::Vec2f> const & get_texcoords(void) const;
+ 
+-        /** The colors as float. For a patch held in bytes, this is a new copy, so changes do not stick. */
++        /** The colors as float, three channels. For a patch held in bytes or in one channel, this is a
++         * new copy, so changes do not stick. */
+         mve::FloatImage::Ptr get_image(void);
+         mve::FloatImage::ConstPtr get_image(void) const;
++        /** Whether get_image hands out a new copy (a patch held in bytes or in one channel). */
++        bool hands_out_copy(void) const;
+         /** The colors in bytes, or null for a patch held in float. */
+         mve::ByteImage::ConstPtr get_byte_image(void) const;
+         mve::ByteImage::ConstPtr get_validity_mask(void) const;
+@@ -114,6 +129,12 @@ TexturePatch::create(int label, std::vector<std::size_t> const & faces,
+     return std::make_shared<TexturePatch>(label, faces, texcoords, byte_image);
+ }
+ 
++inline TexturePatch::Ptr
++TexturePatch::create_gray(int label, std::vector<std::size_t> const & faces,
++    std::vector<math::Vec2f>  const & texcoords, mve::FloatImage::Ptr gray_image) {
++    return std::make_shared<TexturePatch>(label, faces, texcoords, gray_image, OneChannel());
++}
++
+ inline TexturePatch::Ptr
+ TexturePatch::duplicate(void) {
+     return Ptr(new TexturePatch(*this));
+@@ -136,15 +157,23 @@ TexturePatch::get_height(void) const {
+ 
+ inline mve::FloatImage::Ptr
+ TexturePatch::get_image(void) {
+-    return image != NULL ? image : mve::image::byte_to_float_image(byte_image);
++    if (image != NULL) return image;
++    if (gray_image != NULL) return mve::image::expand_grayscale<float>(gray_image);
++    return mve::image::byte_to_float_image(byte_image);
+ }
+ 
+ inline mve::FloatImage::ConstPtr
+ TexturePatch::get_image(void) const {
+     if (image != NULL) return image;
++    if (gray_image != NULL) return mve::image::expand_grayscale<float>(gray_image);
+     return mve::image::byte_to_float_image(byte_image);
+ }
+ 
++inline bool
++TexturePatch::hands_out_copy(void) const {
++    return image == NULL;
++}
++
+ inline mve::ByteImage::ConstPtr
+ TexturePatch::get_byte_image(void) const {
+     return byte_image;
+diff --git a/libs/tex/texture_view.h b/libs/tex/texture_view.h
+index c619401..fabe86f 100644
+--- a/libs/tex/texture_view.h
++++ b/libs/tex/texture_view.h
+@@ -143,7 +143,7 @@ class TextureView {
+         export_validity_mask(std::string const & filename) const;
+ 
+         bool
+-        is_grayscale();
++        is_grayscale() const;
+ };
+ 
+ 
+@@ -434,7 +434,7 @@ TextureView::generate_gradient_magnitude(void) {
+ }
+ 
+ inline bool
+-TextureView::is_grayscale(){
++TextureView::is_grayscale() const {
+     return grayscale;
+ }
+ 

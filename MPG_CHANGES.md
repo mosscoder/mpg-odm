@@ -36,6 +36,7 @@ Licence: AGPL-3.0, as ODM.
 | Change | What it does | Option | Code touched |
 |---|---|---|---|
 | Compact texture patches | Texture patches stay 8-bit until worked on: `texrecon` peak 49 GB to 22 GB at 1,862 photos | Always on | texrecon `texture_patch.*`, `generate_texture_patches.cpp`, `texture_atlas.cpp`, `local_seam_leveling.cpp` |
+| One-channel patches for one-band images | Texture patches from 16-bit one-band images (the multispectral bands, which `texrecon` loads as three equal channels) keep one float channel, 4 bytes a pixel against 12, and are widened only while one patch is worked on. The files written are identical byte for byte (8 band runs on two 100 m squares of mission 3, on one thread, where `texrecon` repeats itself exactly; a 200-photo 8-bit RGB run is identical too). Peak 535 MB to 481 and 663 MB to 552 on those squares. At full size, where a band peaked at 31 to 32 GB (2024 mission 6), the estimate is about 21 GB, then set by the atlases; not measured yet | Always on | texrecon `texture_patch.*`, `generate_texture_patches.cpp`, `local_seam_leveling.cpp`, `texture_view.h` |
 | Texturing from raw photos | Depth maps get small 660 px copies; texturing reads the raw JPEGs and undistorts them in memory. Full-mission disk about 190 GB to 75 GB (estimate) | `--raw-texturing`, default `auto` (on for one-camera RGB) | ODM `config.py`, `osfm.py`, `run_opensfm.py`, `mvstex.py`; OpenSfM `undistort.py`, `export_visualsfm`; texrecon `texture_view.*`, `generate_texture_views.cpp`, `arguments.*`, `texrecon.cpp` |
 | Fork defaults | `--raw-texturing auto`; mesh size scales with photo count (1,000 vertices per photo, at least 200,000) | Default | ODM `config.py`, `utils.py`, `run_opensfm.py`, `mvstex.py`, `odm_meshing.py` |
 
@@ -55,7 +56,7 @@ Licence: AGPL-3.0, as ODM.
 
 ## Size of the changes
 
-About 620 lines added and 90 removed in 38 files, which is about 0.6% of the roughly 111,000 lines in the parts
+About 705 lines added and 95 removed in 38 files, which is about 0.7% of the roughly 111,000 lines in the parts
 touched. Untouched: OpenMVS (depth maps and fusion), meshing, PDAL, GDAL, DEMs, and OpenSfM's feature finding and core
 bundle adjustment.
 
