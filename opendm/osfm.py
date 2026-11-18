@@ -340,6 +340,13 @@ class OSFMContext:
             else:
                 config.append("local_bundle_radius: 0")
                 
+            if args.hold_focal_length:
+                # OpenSfM's own setting: the standard deviation of the focal length about its starting value, in log
+                # scale (its default is 0.01). At 0.000001 the focal length stays put; the center and distortion keep
+                # their usual freedom.
+                log.ODM_INFO("Lens: the focal length is held at its starting value; the center and distortion are solved")
+                config.append("exif_focal_sd: 0.000001")
+
             if gcp_path:
                 config.append("bundle_use_gcp: yes")
                 if not args.force_gps:

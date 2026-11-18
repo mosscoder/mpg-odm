@@ -52,6 +52,7 @@ Licence: AGPL-3.0, as ODM.
 | Change | What it does | Option | Code touched |
 |---|---|---|---|
 | Shift-only GPS offset | With GCPs, the offset between RTK and the GCPs is a shift only (3 numbers), not shift, turn and stretch (7). 2024 mission 7, held-out GCP heights: 12.0 cm RMS against 24.8. Known limit: with fewer than 3 GCPs the starting shift is wrong and the solve can fail | `--gps-bias-shift-only`, off | ODM `config.py`, `osfm.py`; OpenSfM `align.py`, `config.py`, `ba_helpers.cc` |
+| Focal length held | The camera solve keeps the focal length it starts with (from `--cameras`) and solves the lens center and distortion. With RTK camera positions and the shift-only GPS offset, the focal length trades against the up-and-down part of the shift (1% looks like 1.2 m at 120 m above ground), so some missions drift: summer 2025 mission 3 moved 0.93% with a 1.4 m false shift. Held, the shift was 10 cm, the five targets fit to 0.6 to 1.7 cm sideways, and the solve's misfit rose 0.07% | `--hold-focal-length`, off | ODM `config.py`, `osfm.py` (sets OpenSfM's `exif_focal_sd` to 0.000001) |
 | Exact map conversion | Converts the solve to UTM exactly, instead of ODM's straight-line step, which leaves heights low by the Earth's curvature and pulls cameras inward. Map targets: 2024 mission 7 2.7 cm RMS against 22.9; 2025 mission 3 1.8 against 8.8 | Default; `--stock-georef` uses ODM's step | ODM `config.py`, `run_opensfm.py`; OpenSfM `geo.py`, `export_geocoords` |
 
 ## Size of the changes

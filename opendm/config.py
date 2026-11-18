@@ -104,6 +104,7 @@ rerun_stages = {
     'use_3dmesh': 'mvs_texturing',
     'use_exif': 'dataset',
     'use_fixed_camera_params': 'opensfm',
+    'hold_focal_length': 'opensfm',
     'use_hybrid_bundle_adjustment': 'opensfm',
     'version': None,
     'video_limit': 'dataset',
@@ -879,6 +880,17 @@ def config(argv=None, parser=None):
                           'be a shift only (3 numbers) instead of shift, rotation and scale (7). With few GCPs the 7-number '
                           'offset can tilt or stretch the block; on 2024 mission 7 held-out GCP heights were 24.8 cm RMS '
                           'with 7 numbers and 12.0 cm with a shift. Default: %(default)s'))
+
+    parser.add_argument('--hold-focal-length',
+                    action=StoreTrue,
+                    nargs=0,
+                    default=False,
+                    help=('Hold the focal length at its starting value (the one given with --cameras) while the lens '
+                          'center and distortion are solved. With RTK camera positions and --gps-bias-shift-only the focal '
+                          'length can trade against the vertical part of the shift: 1%% of focal length looks like 1.2 m of '
+                          'height at 120 m above ground. On summer 2025 mission 3 the free solve moved the focal length '
+                          '0.93%% with a 1.4 m false shift; held, the shift was 10 cm and the fit 0.07%% worse. '
+                          'Default: %(default)s'))
 
     parser.add_argument('--stock-georef',
                     action=StoreTrue,
