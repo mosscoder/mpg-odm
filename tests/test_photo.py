@@ -63,5 +63,47 @@ class TestPhoto(unittest.TestCase):
         self.assertAlmostEqual(gps["latitude_std"], 10.0)
         self.assertAlmostEqual(gps["altitude_std"], 30.0)
 
+    def _camera(self, omega, phi, kappa):
+        # OpenSfM's rotation from the world (east, north, up) to its camera (geometry/src/rotation.cc)
+        import math
+        import numpy as np
+        def r(axis, a):
+            c, s = math.cos(a), math.sin(a)
+            return {"x": np.array([[1, 0, 0], [0, c, -s], [0, s, c]]), "y": np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]]),
+                    "z": np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])}[axis]
+        o, p, k = (math.radians(v) for v in (omega, phi, kappa))
+        return np.diag([1.0, -1.0, -1.0]).dot(r("z", -k)).dot(r("y", -p)).dot(r("x", -o))
+
+    def _gimbal(self, yaw, pitch, roll):
+        # A DJI photo as parse_exif leaves it: pitch moved so that 0 is nadir
+        photo = ODM_Photo("tests/assets/test_0001.jxl")
+        photo.gimbal_yaw, photo.pitch, photo.roll = yaw, 90 + pitch, roll
+        self.assertTrue(photo.compute_opk_from_gimbal())
+        R = self._camera(photo.omega, photo.phi, photo.kappa)
+        return R.T.dot([0, 0, 1]), -R.T.dot([0, 1, 0])          # where the camera looks, and where the top of the image points
+
+    def test_gimbal_angles_nadir(self):
+        # Mavic 3 Multispectral, spring 2025 mission 15, photo 0168: gimbal yaw -179.7, pitch -89.9, roll 0. It looks down
+        # with the top of the image to the south; the solve agreed within 1.7 degrees.
+        look, up = self._gimbal(-179.7, -89.9, 0.0)
+        self.assertGreater(-look[2], 0.9999)
+        self.assertGreater(-up[1], 0.9999)
+        # Photo 0164 of the same line: DJI writes the same view as yaw 0.3 with roll 180. Stock ODM turned it upside down.
+        look, up = self._gimbal(0.3, -90.0, 180.0)
+        self.assertGreater(-look[2], 0.9999)
+        self.assertGreater(-up[1], 0.9999)
+
+    def test_gimbal_angles_heading_and_tilt(self):
+        look, up = self._gimbal(90.0, -90.0, 0.0)                 # top of the image to the east
+        self.assertGreater(up[0], 0.9999)
+        look, up = self._gimbal(0.0, -45.0, 0.0)                  # looking north, 45 degrees down
+        self.assertAlmostEqual(look[1], 0.7071, places=3)
+        self.assertAlmostEqual(look[2], -0.7071, places=3)
+
+    def test_gimbal_angles_need_dji_gimbal_yaw(self):
+        photo = ODM_Photo("tests/assets/test_0001.jxl")
+        self.assertIsNone(photo.gimbal_yaw)
+        self.assertFalse(photo.compute_opk_from_gimbal())
+
 if __name__ == '__main__':
     unittest.main()

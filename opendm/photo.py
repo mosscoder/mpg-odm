@@ -139,6 +139,7 @@ class ODM_Photo:
 
         # OPK angles
         self.yaw = None
+        self.gimbal_yaw = None    # MPG: DJI's GimbalYawDegree, the camera's own heading (compute_opk_from_gimbal)
         self.pitch = None
         self.roll = None
         self.omega = None
@@ -469,6 +470,7 @@ class ODM_Photo:
                     self.set_attr_from_xmp_tag('yaw', xtags, ['@drone-dji:FlightYawDegree', '@Camera:Yaw', 'Camera:Yaw'], float)
                     self.set_attr_from_xmp_tag('pitch', xtags, ['@drone-dji:GimbalPitchDegree', '@Camera:Pitch', 'Camera:Pitch'], float)
                     self.set_attr_from_xmp_tag('roll', xtags, ['@drone-dji:GimbalRollDegree', '@Camera:Roll', 'Camera:Roll'], float)
+                    self.set_attr_from_xmp_tag('gimbal_yaw', xtags, ['@drone-dji:GimbalYawDegree'], float)
 
                     # Normalize YPR conventions (assuming nadir camera)
                     # Yaw: 0 --> top of image points north
@@ -972,6 +974,41 @@ class ODM_Photo:
             self.omega = math.degrees(math.atan2(-ceb[1][2], ceb[2][2]))
             self.phi = math.degrees(math.asin(ceb[0][2]))
             self.kappa = math.degrees(math.atan2(-ceb[0][1], ceb[0][0]))
+
+    def compute_opk_from_gimbal(self):
+        """MPG: the camera's angles from DJI's gimbal yaw, pitch and roll, which are the camera's own heading and tilt,
+        converted exactly to the omega, phi and kappa OpenSfM reads. OpenSfM's convention (geometry/src/rotation.cc):
+        the rotation from the world (east, north, up) to the camera (x right, y down, z forward) is
+        Rc Rk(-kappa) Rp(-phi) Rw(-omega), with Rc = diag(1, -1, -1).
+
+        compute_opk() takes the aircraft's yaw and builds its frame from ECEF axes. On the Mavic 3 Multispectral its
+        angles are 15 to 24 degrees off in heading for every photo, and upside down for the photos where DJI writes a
+        gimbal roll of 180 with the yaw turned half a circle (half of a mission's photos). Those angles orient the
+        first photos of an incremental solve that starts on one flight line, and start the triangulation solve.
+        Returns True when the angles were set."""
+        if self.gimbal_yaw is None or self.pitch is None or self.roll is None:
+            return False
+
+        def turn(axis, angle):
+            axis = np.asarray(axis, dtype=float)
+            axis = axis / np.linalg.norm(axis)
+            k = np.array([[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]])
+            return np.eye(3) + math.sin(angle) * k + (1 - math.cos(angle)) * k.dot(k)
+
+        yaw = math.radians(self.gimbal_yaw)          # clockwise from north
+        pitch = math.radians(self.pitch - 90.0)      # ODM keeps 0 for nadir (parse_exif adds 90 to DJI's pitch); DJI's -90
+        roll = math.radians(self.roll)
+        # Turn a camera that looks north along the horizon: yaw about up, pitch about its right side, roll about its view
+        r_yaw = turn([0, 0, 1], -yaw)
+        r_pitch = turn(r_yaw.dot([1.0, 0, 0]), pitch)
+        r_roll = turn(r_pitch.dot(r_yaw).dot([0, 1.0, 0]), roll)
+        level_north = np.array([[1, 0, 0], [0, 0, -1], [0, 1, 0]], dtype=float)
+        world_to_camera = level_north.dot(r_roll.dot(r_pitch).dot(r_yaw).T)
+        r = world_to_camera.T.dot(np.diag([1.0, -1.0, -1.0]))
+        self.omega = math.degrees(math.atan2(-r[1][2], r[2][2]))
+        self.phi = math.degrees(math.asin(max(-1.0, min(1.0, r[0][2]))))
+        self.kappa = math.degrees(math.atan2(-r[0][1], r[0][0]))
+        return True
 
     def get_capture_megapixels(self):
         if self.exif_width is not None and self.exif_height is not None:

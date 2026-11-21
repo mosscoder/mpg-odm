@@ -216,6 +216,11 @@ class ODMLoadDatasetStage(types.ODM_Stage):
                     for p in photos:
                         p.override_gps_dop(args.gps_accuracy)
                 
+                # MPG: the camera angles from DJI's gimbal yaw, pitch and roll (issue 52 of mpg-aerial-pipeline)
+                if args.gimbal_angles:
+                    n = sum(1 for p in photos if p.compute_opk_from_gimbal())
+                    log.ODM_INFO("Camera angles from DJI's gimbal yaw, pitch and roll for %s of %s images" % (n, len(photos)))
+
                 # Override projection type
                 if args.camera_lens != "auto":
                     log.ODM_INFO("Setting camera lens to %s for all images" % args.camera_lens)

@@ -82,6 +82,7 @@ rerun_stages = {
     'rolling_shutter': 'opensfm',
     'rolling_shutter_readout': 'opensfm',
     'sfm_algorithm': 'opensfm',
+    'gimbal_angles': 'dataset',
     'sfm_no_partial': 'opensfm',
     'skip_3dmodel': 'odm_meshing',
     'skip_band_alignment': 'opensfm',
@@ -891,6 +892,16 @@ def config(argv=None, parser=None):
                           'height at 120 m above ground. On summer 2025 mission 3 the free solve moved the focal length '
                           '0.93%% with a 1.4 m false shift; held, the shift was 10 cm and the fit 0.07%% worse. '
                           'Default: %(default)s'))
+
+    parser.add_argument('--gimbal-angles',
+                    action=StoreTrue,
+                    nargs=0,
+                    default=False,
+                    help=('Take each photo\'s camera angles from DJI\'s gimbal yaw, pitch and roll and convert them exactly '
+                          'to OpenSfM\'s omega, phi and kappa. ODM\'s own conversion uses the aircraft\'s yaw and an ECEF '
+                          'frame: on the Mavic 3 Multispectral its angles are 15 to 24 degrees off in heading, and upside down '
+                          'for the half of the photos where DJI writes a gimbal roll of 180. Those angles orient the start of '
+                          'an incremental solve on one flight line, and start the triangulation solve. Default: %(default)s'))
 
     parser.add_argument('--stock-georef',
                     action=StoreTrue,
