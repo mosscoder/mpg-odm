@@ -1,0 +1,17 @@
+diff --git a/opensfm/pairs_selection.py b/opensfm/pairs_selection.py
+index 63badb4..d707d06 100644
+--- a/opensfm/pairs_selection.py
++++ b/opensfm/pairs_selection.py
+@@ -315,9 +315,11 @@ def match_candidates_by_graph(
+     # in order to get 'alternative' delaunay triangulations : a perfect square
+     # will only produce one diagonal edge, so by jittering it, we get more
+     # chances of getting such diagonal edges and having more diversity
++    # MPG: a fixed seed, so the same photos give the same pairs on every run (each run took its own path before)
++    rng = np.random.RandomState(42)
+     for _ in range(rounds):
+         points_current = copy.copy(
+-            points) + np.random.rand(*points.shape) * scale
++            points) + rng.rand(*points.shape) * scale
+         triangles = spatial.Delaunay(points_current).simplices
+         for (image1, image2), _ in produce_edges(triangles):
+             pairs.add((image1, image2))
