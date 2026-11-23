@@ -347,13 +347,6 @@ class OSFMContext:
                 log.ODM_INFO("Lens: the focal length is held at its starting value; the center and distortion are solved")
                 config.append("exif_focal_sd: 0.000001")
 
-            if args.keep_rtk:
-                # OpenSfM reweights the GPS residuals with a mixture model whose spread it learns from them (bundle/
-                # mixture_reweighting.cc): a residual is an outlier when its density falls below density_ratio times the
-                # peak. At 1e-300 that is past about 37 learned standard deviations instead of about 5 (the default 1e-5).
-                log.ODM_INFO("RTK kept: a camera position is set aside only when it is far past the others' fit")
-                config.append("bundle_irls_gps_density_ratio: 1.0e-300")
-
             if gcp_path:
                 config.append("bundle_use_gcp: yes")
                 if not args.force_gps:
