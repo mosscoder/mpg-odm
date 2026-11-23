@@ -106,6 +106,7 @@ rerun_stages = {
     'use_exif': 'dataset',
     'use_fixed_camera_params': 'opensfm',
     'hold_focal_length': 'opensfm',
+    'keep_rtk': 'opensfm',
     'use_hybrid_bundle_adjustment': 'opensfm',
     'version': None,
     'video_limit': 'dataset',
@@ -891,6 +892,18 @@ def config(argv=None, parser=None):
                           'length can trade against the vertical part of the shift: 1%% of focal length looks like 1.2 m of '
                           'height at 120 m above ground. On summer 2025 mission 3 the free solve moved the focal length '
                           '0.93%% with a 1.4 m false shift; held, the shift was 10 cm and the fit 0.07%% worse. '
+                          'Default: %(default)s'))
+
+    parser.add_argument('--keep-rtk',
+                    action=StoreTrue,
+                    nargs=0,
+                    default=False,
+                    help=('Keep the photos\' RTK positions in the camera solve\'s adjustment. OpenSfM down-weights a position '
+                          'it judges an outlier, judging from how well the other positions fit (about 3 cm with RTK), so a '
+                          'stretch of photos the solve has bent a meter away from RTK can lose its positions and stay bent. '
+                          'With this option a position is set aside only past about 37 times that fit (about a meter) instead of '
+                          'about 5 (OpenSfM\'s bundle_irls_gps_density_ratio 1e-300 instead of 1e-5). Fall 2025 mission 19: 314 '
+                          'photos 1 to 13 m from RTK; with this option and --sfm-algorithm triangulation, none past 0.57 m. '
                           'Default: %(default)s'))
 
     parser.add_argument('--gimbal-angles',
