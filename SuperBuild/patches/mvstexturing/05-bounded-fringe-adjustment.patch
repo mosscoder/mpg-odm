@@ -1,0 +1,21 @@
+diff --git a/libs/tex/texture_patch.cpp b/libs/tex/texture_patch.cpp
+index a487770..b20fd1a 100644
+--- a/libs/tex/texture_patch.cpp
++++ b/libs/tex/texture_patch.cpp
+@@ -118,9 +118,13 @@ TexturePatch::adjust_colors(std::vector<math::Vec3f> const & adjust_values) {
+                         continue;
+ 
+                     for (int c = 0; c < 3; ++c) {
+-                        iadjust_values->at(x, y, c) = math::interpolate(
+-                            adjust_values[i][c], adjust_values[i + 1][c], adjust_values[i + 2][c],
+-                            bcoords[0], bcoords[1], bcoords[2]);
++                        /* Outside the triangle the adjustment stays between the three corners' values. Extending
++                         * the triangle's trend runs away on a triangle seen edge-on, and local seam leveling then
++                         * blends that value into the patch. */
++                        float const a0 = adjust_values[i][c], a1 = adjust_values[i + 1][c], a2 = adjust_values[i + 2][c];
++                        float const v = math::interpolate(a0, a1, a2, bcoords[0], bcoords[1], bcoords[2]);
++                        float const lo = std::min(a0, std::min(a1, a2)), hi = std::max(a0, std::max(a1, a2));
++                        iadjust_values->at(x, y, c) = std::min(hi, std::max(lo, v));
+                     }
+                     validity_mask->at(x, y, 0) = 255;
+                     blending_mask->at(x, y, 0) = 64;
