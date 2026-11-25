@@ -130,8 +130,12 @@ def dem_to_mesh_gridded(inGeotiff, outMesh, maxVertexCount, maxConcurrency=1):
     # Delete intermediate results
     os.remove(outMeshDirty)
 
-    # The cleanup leaves a few small openings in the surface; close them so texturing has a face to color there
-    close_small_openings(outMesh)
+    # The cleanup leaves a few small openings in the surface; close them so texturing has a face to color there.
+    # The mesh file is only replaced at the very end, so a failure here leaves the cleaned mesh as it was
+    try:
+        close_small_openings(outMesh)
+    except Exception as e:
+        log.ODM_WARNING("Could not close small openings in the 2.5D mesh (%s); it is used as the cleanup left it" % str(e))
 
     return outMesh
 

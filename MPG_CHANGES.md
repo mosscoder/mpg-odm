@@ -67,7 +67,7 @@ Licence: AGPL-3.0, as ODM.
 
 ## Size of the changes
 
-About 855 lines added and 98 removed in 39 files, which is about 0.8% of the roughly 111,000 lines in the parts
+About 859 lines added and 98 removed in 39 files, which is about 0.8% of the roughly 111,000 lines in the parts
 touched. Untouched: OpenMVS (depth maps and fusion), the meshing programs, PDAL, GDAL, DEMs, and OpenSfM's feature
 finding and core bundle adjustment.
 
