@@ -6,7 +6,8 @@ the crispest map the photos allow. It is used by `mpg-aerial-pipeline`, which dr
 
 The base is ODM 3.6.2 plus 121 upstream commits (`681350f`). Every change is one commit on `main` after that one;
 `git log 681350f..main` lists them. Changes that alter results sit behind an option. The ones marked "always on" only
-change speed, memory or crash handling, or the cubic redraws.
+change speed, memory or crash handling, or are the cubic redraws and the bounded brightness matching at triangle
+edges.
 
 ODM builds OpenSfM, the texturing program (`texrecon`, from mvs-texturing) and `odm_orthophoto` from their own
 repositories. Our changes to those three are patch files in `SuperBuild/patches/`, applied by the build right after
@@ -21,6 +22,7 @@ Licence: AGPL-3.0, as ODM.
 | Change | What it does | Option | Code touched |
 |---|---|---|---|
 | Cubic redraws | Photos are undistorted, and the final map is drawn, with cubic instead of bilinear sampling, to keep fine detail | Always on | OpenSfM `undistort.py`; `odm_orthophoto` `OdmOrthoPhoto.cpp` |
+| Bounded brightness matching at triangle edges | `texrecon` matches brightness between photos with a correction at each triangle corner. For the one-pixel fringe just outside a triangle it extended the triangle's trend, which runs away on a triangle seen edge-on (the walls of the 2.5D surface at crown edges), and the local matching step then spread that value about 1 m into the patch. The fringe now keeps a value between the three corners'. The multispectral bands are textured as 16-bit logarithms, where this made spots that reached 65,535 and came out as no data, ringed by values many times too bright or dark: 71 holes in the fall 2025 merge (mosscoder/mpg-aerial-pipeline issue 68). On a treed 130 m square of summer 2025 mission 3 (its mesh, cameras and photo choice; real band images): a spot 96 times too bright in red is gone, about 6% of a band's pixels change at all (median 0.03%), 0.02 to 0.05% by more than 3%. In 8-bit color made from the same band images, 0.4 to 0.5% of a channel's pixels change, 0.03 to 0.04% by more than one level, the largest by 39. Not yet run on a whole mission | Always on | texrecon `texture_patch.cpp` |
 
 ### Speed
 
@@ -64,7 +66,7 @@ Licence: AGPL-3.0, as ODM.
 
 ## Size of the changes
 
-About 705 lines added and 95 removed in 38 files, which is about 0.7% of the roughly 111,000 lines in the parts
+About 712 lines added and 98 removed in 38 files, which is about 0.7% of the roughly 111,000 lines in the parts
 touched. Untouched: OpenMVS (depth maps and fusion), meshing, PDAL, GDAL, DEMs, and OpenSfM's feature finding and core
 bundle adjustment.
 
